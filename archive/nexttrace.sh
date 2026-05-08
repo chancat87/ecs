@@ -1,7 +1,7 @@
 #!/bin/bash
 # by https://github.com/spiritLHLS/ecs
 # by spiritlhls
-# 2023.08.26
+# 2026.05.08
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -25,7 +25,7 @@ case "$ARCHITECTURE" in
   FILE=nexttrace_linux_arm64
   ;;
 "i386" | "i686")
-  FILE=nexttrace_darwin_amd64
+  FILE=nexttrace_linux_386
   ;;
 *)
   red " 本脚本只支持 AMD64、ARM64、i386 和 i686 使用，问题反馈:[https://github.com/fscarmen/tools/issues] " && exit 1

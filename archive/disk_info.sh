@@ -1,7 +1,7 @@
 #!/bin/bash
 # by https://github.com/spiritLHLS/ecs
 # by spiritlhls
-# 2023.01.17
+# 2026.05.08
 next() {
     echo "-------------------"
 }
@@ -28,13 +28,16 @@ disk_list=""
 if ls -d /dev/sd* >/dev/null 2>&1; then
     disk_list="$disk_list $(ls /dev/sd*)"
 fi
-if ls -d /dev/hd* >/dev/null 2>&1; then
+if ls -d /dev/nvme* >/dev/null 2>&1; then
     disk_list="$disk_list $(ls /dev/nvme*)"
 fi
 if ls -d /dev/hd* >/dev/null 2>&1; then
     disk_list="$disk_list $(ls /dev/hd*)"
 fi
 if ls -d /dev/vd* >/dev/null 2>&1; then
+    disk_list="$disk_list $(ls /dev/vd*)"
+fi
+if ls -d /dev/mmcblk* >/dev/null 2>&1; then
     disk_list="$disk_list $(ls /dev/mmcblk*)"
 fi
 # if ls -d /dev/vd* > /dev/null 2>&1; then
