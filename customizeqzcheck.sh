@@ -2,7 +2,7 @@
 #by spiritlhl
 #from https://github.com/spiritLHLS/ecs
 
-ver="2026.02.28"
+ver="2026.05.08"
 changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
 
 red() {
@@ -195,6 +195,9 @@ scamalytics() {
 virustotal() {
     local ip="$1"
     local api_keys=()
+    if [ ${#api_keys[@]} -eq 0 ]; then
+        return
+    fi
     local api_key=${api_keys[$RANDOM % ${#api_keys[@]}]}
     local output=$(curl -s --request GET --url "https://www.virustotal.com/api/v3/ip_addresses/$ip" --header "x-apikey:$api_key")
     local result=$(echo "$output" | awk -F"[,:}]" '{
@@ -289,8 +292,8 @@ main() {
     next
 }
 
-checkupdate
 checkroot
+checkupdate
 checkwget
 checkcurl
 ! _exists "wget" && _red "Error: wget command not found.\n" && exit 1

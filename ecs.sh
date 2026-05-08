@@ -4,7 +4,7 @@
 
 cd /root >/dev/null 2>&1
 myvar=$(pwd)
-ver="2026.02.28"
+ver="2026.05.08"
 
 # =============== 默认输入设置 ===============
 RED="\033[31m"
@@ -596,9 +596,10 @@ check_and_cat_file() {
             :
         else
             truncate -s 0 "$file"
+            return
         fi
     else
-        truncate -s 0 "$file"
+        return
     fi
     # 检测文件内容是否包含"error"，如果包含则不打印文件内容
     if grep -q "error" "$file"; then
@@ -2487,12 +2488,17 @@ Run_DiskTest_DD() {
     DiskTest_WriteSpeed="$(echo "${DiskTest_WriteSpeed_ResultRAW}" | sed "s/秒/s/")"
     local DiskTest_WriteTime_ResultRAW="$(cat ${Var_DiskTestResultFile} | grep -oE "[0-9]{1,}.[0-9]{1,} s|[0-9]{1,}.[0-9]{1,} s|[0-9]{1,}.[0-9]{1,} 秒|[0-9]{1,}.[0-9]{1,} 秒")"
     DiskTest_WriteTime="$(echo ${DiskTest_WriteTime_ResultRAW} | awk '{print $1}')"
-    DiskTest_WriteIOPS=$(awk -v t="${DiskTest_WriteTime}" -v c="${3}" 'BEGIN{ printf "%.0f\n", c / t }')
-    DiskTest_WritePastTime="$(echo ${DiskTest_WriteTime} | awk '{printf "%.2f\n",$1}')"
+    DiskTest_WriteIOPS=0
+    if [ -n "${DiskTest_WriteTime}" ] && awk "BEGIN { exit !(${DiskTest_WriteTime:-0} > 0) }" 2>/dev/null; then
+        DiskTest_WriteIOPS=$(awk -v t="${DiskTest_WriteTime}" -v c="${3}" 'BEGIN{ printf "%.0f\n", c / t }')
+    fi
+    DiskTest_WritePastTime="$(echo ${DiskTest_WriteTime:-0} | awk '{printf "%.2f\n",$1}')"
     if [ ${DiskTest_WriteIOPS} -ge 10000 ]; then
         DiskTest_WriteIOPS=$(awk -v i="${DiskTest_WriteIOPS}" 'BEGIN{ printf "%.2f\n", i / 1000 }')
+        DiskTest_WriteIOPS_Suffix="K "
         echo -n -e "\r $4\t\t${Font_SkyBlue}${DiskTest_WriteSpeed} (${DiskTest_WriteIOPS}K IOPS, ${DiskTest_WritePastTime}s)${Font_Suffix}\t\t->\c"
     else
+        DiskTest_WriteIOPS_Suffix=""
         echo -n -e "\r $4\t\t${Font_SkyBlue}${DiskTest_WriteSpeed} (${DiskTest_WriteIOPS} IOPS, ${DiskTest_WritePastTime}s)${Font_Suffix}\t\t->\c"
     fi
     # 清理结果文件, 准备下一次测试
@@ -2501,21 +2507,30 @@ Run_DiskTest_DD() {
     sync
     if [ "${Result_Systeminfo_VMMTypeShort}" != "docker" ] && [ "${Result_Systeminfo_VMMTypeShort}" != "wsl" ]; then
         if [ -w /proc/sys/vm/drop_caches ]; then
-            echo 3 >/proc/sys/vm/drop_caches >/dev/null 2>&1
+            echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
         fi
     fi
     sleep 0.5
     # 正式读测试
     dd if=/.tmp_LBench/DiskTest/$1 of=/dev/null bs=$2 count=$3 iflag=direct 2>${Var_DiskTestResultFile}
     local DiskTest_ReadSpeed_ResultRAW="$(cat ${Var_DiskTestResultFile} | grep -oE "[0-9]{1,4} kB/s|[0-9]{1,4}.[0-9]{1,2} kB/s|[0-9]{1,4} KB/s|[0-9]{1,4}.[0-9]{1,2} KB/s|[0-9]{1,4} MB/s|[0-9]{1,4}.[0-9]{1,2} MB/s|[0-9]{1,4} GB/s|[0-9]{1,4}.[0-9]{1,2} GB/s|[0-9]{1,4} TB/s|[0-9]{1,4}.[0-9]{1,2} TB/s|[0-9]{1,4} kB/秒|[0-9]{1,4}.[0-9]{1,2} kB/秒|[0-9]{1,4} KB/秒|[0-9]{1,4}.[0-9]{1,2} KB/秒|[0-9]{1,4} MB/秒|[0-9]{1,4}.[0-9]{1,2} MB/秒|[0-9]{1,4} GB/秒|[0-9]{1,4}.[0-9]{1,2} GB/秒|[0-9]{1,4} TB/秒|[0-9]{1,4}.[0-9]{1,2} TB/秒|[0-9]{1,4} bytes/sec")"
-    DiskTest_ReadSpeed="$(echo "${DiskTest_ReadSpeed_ResultRAW}" | sed "s/s/s/")"
+    DiskTest_ReadSpeed="$(echo "${DiskTest_ReadSpeed_ResultRAW}" | sed "s/秒/s/")"
     local DiskTest_ReadTime_ResultRAW="$(cat ${Var_DiskTestResultFile} | grep -oE "[0-9]{1,}.[0-9]{1,} s|[0-9]{1,}.[0-9]{1,} s|[0-9]{1,}.[0-9]{1,} 秒|[0-9]{1,}.[0-9]{1,} 秒")"
     DiskTest_ReadTime="$(echo ${DiskTest_ReadTime_ResultRAW} | awk '{print $1}')"
-    DiskTest_ReadIOPS="$(echo ${DiskTest_ReadTime} $3 | awk '{printf "%d\n",$2/$1}')"
-    DiskTest_ReadPastTime="$(echo ${DiskTest_ReadTime} | awk '{printf "%.2f\n",$1}')"
+    DiskTest_ReadIOPS=0
+    if [ -n "${DiskTest_ReadTime}" ] && awk "BEGIN { exit !(${DiskTest_ReadTime:-0} > 0) }" 2>/dev/null; then
+        DiskTest_ReadIOPS="$(echo ${DiskTest_ReadTime} $3 | awk '{printf "%d\n",$2/$1}')"
+    fi
+    if [ "${DiskTest_ReadIOPS}" -ge 10000 ]; then
+        DiskTest_ReadIOPS=$(awk -v i="${DiskTest_ReadIOPS}" 'BEGIN{ printf "%.2f\n", i / 1000 }')
+        DiskTest_ReadIOPS_Suffix="K "
+    else
+        DiskTest_ReadIOPS_Suffix=""
+    fi
+    DiskTest_ReadPastTime="$(echo ${DiskTest_ReadTime:-0} | awk '{printf "%.2f\n",$1}')"
     rm -f ${Var_DiskTestResultFile}
     # 输出结果
-    echo -n -e "\r $4\t\t${Font_SkyBlue}${DiskTest_WriteSpeed} (${DiskTest_WriteIOPS} IOPS, ${DiskTest_WritePastTime}s)${Font_Suffix}\t\t${Font_SkyBlue}${DiskTest_ReadSpeed} (${DiskTest_ReadIOPS} IOPS, ${DiskTest_ReadPastTime}s)${Font_Suffix}\n"
+    echo -n -e "\r $4\t\t${Font_SkyBlue}${DiskTest_WriteSpeed} (${DiskTest_WriteIOPS} ${DiskTest_WriteIOPS_Suffix}IOPS, ${DiskTest_WritePastTime}s)${Font_Suffix}\t\t${Font_SkyBlue}${DiskTest_ReadSpeed} (${DiskTest_ReadIOPS} ${DiskTest_ReadIOPS_Suffix}IOPS, ${DiskTest_ReadPastTime}s)${Font_Suffix}\n"
     rm -rf /.tmp_LBench/DiskTest/
 }
 
@@ -2719,8 +2734,8 @@ is_private_ipv6() {
     if [[ $address == 2002:* ]]; then
         temp="8"
     fi
-    # 检查IPv6地址是否以2001:开头（Teredo隧道地址）
-    if [[ $address == 2001:* ]]; then
+    # 检查IPv6地址是否以2001:0000:开头（Teredo隧道地址，RFC4380）
+    if [[ $address == 2001:0:* || $address == 2001:0000:* ]]; then
         temp="9"
     fi
     if [ "$temp" -gt 0 ]; then
@@ -2812,7 +2827,7 @@ check_ip_info_by_ipinfo() {
         ipv4_location="${ipv4_location%\"*}"
     fi
     if [[ $ipv6_asn_info == *"\""* ]]; then
-        ipv6_asn_info="${ipv4_asn_info%\"*}"
+        ipv6_asn_info="${ipv6_asn_info%\"*}"
     fi
     if [[ $ipv6_location == *"\""* ]]; then
         ipv6_location="${ipv6_location%\"*}"
@@ -3171,12 +3186,12 @@ get_system_info() {
     fi
     if [ "$tcpctrl" != "bbr" ] && command -v lsmod >/dev/null 2>&1 && lsmod | grep bbr >/dev/null 2>&1; then
         if [ "$en_status" = true ]; then
-            reading "Should I turn on bbr before testing? (Enter to leave it on by default) [y/n] " confirmbbr
+            reading "Should I turn on bbr before testing? (Enter to skip, type y to enable) [y/n] " confirmbbr
         else
-            reading "是否要开启bbr再进行测试？(回车则默认不开启) [y/n] " confirmbbr
+            reading "是否要开启bbr再进行测试？(回车则默认不开启，输入y则开启) [y/n] " confirmbbr
         fi
         echo ""
-        if [ "$confirmbbr" != "y" ]; then
+        if [ "$confirmbbr" = "y" ]; then
             echo "net.core.default_qdisc=fq" >>"$sysctl_conf"
             echo "net.ipv4.tcp_congestion_control=bbr" >>"$sysctl_conf"
             $sysctl_path -p
