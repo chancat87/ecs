@@ -85,20 +85,13 @@ https://github.com/spiritLHLS/one-click-installation-script
 
 ## 更新
 
-2026.07.13
+2026.08.27
 
-- 全面收紧安全策略：curl 强制 HTTPS 不再跳过证书校验，二进制权限由 777 降为 700
-- 临时目录改用 `mktemp -d` 创建，脚本退出自动清理，不再硬编码写 `/tmp`
-- 新增压缩包安全检查，拒绝含路径穿越或符号链接的恶意归档文件
-- 外部下载的脚本执行前先 `bash -n` 语法校验，二进制文件分两步下载避免执行不完整文件
-- nexttrace 版本号、IPv4/IPv6 地址增加格式校验，防止注入和异常输入
-- `disk_info.sh` 改用 `lsblk` 检测磁盘，避免 `/dev/sd*` / `/dev/nvme*` 等设备类型混淆
-- `ipcheck.sh` 平台/架构检测合并去重，代码量大幅减少
-- CDN 地址列表精简合并，统一走 HTTPS
-- 彩色输出函数 `$@` 改 `$*`，修复多参数时颜色异常问题
-- 新增 `sanitize_text` 过滤不可打印字符，避免输出污染
-- 临时文件路径统一命名变量，提高可维护性
-- README 详细更新日志移至 CHANGELOG.md，各语言版增加可折叠区域，新增赞助商章节
+- `speedtest-go` 下载版本升级至 `v1.8.2`；该上游会为 speedtest.net 的客户端配置请求附加随机参数，避免共享 CDN 返回其他用户的缓存配置
+- `ecs.sh` 与独立的 `ipcheck.sh` 会先保持原有系统 DNS 和 curl 请求；只有 curl 明确报出 `Could not resolve host` 时，才使用固定地址验证内置 DoH 上游并重试
+- 超时、TLS/HTTP/CDN 失败、丢包及 `Could not resolve proxy` 均不会被误判为 DNS 缺失；不会改写 `/etc/resolv.conf`、`/etc/hosts` 或其他系统解析配置
+- 每次实际回退都会通过真实 DNS 报文验证候选 DoH 服务，选择查询耗时最低者并缓存在本次临时目录；不支持 `--doh-url` 的旧 curl 保持原失败行为
+- Shell 内嵌 DoH 地址由 `basics` 的已验证嵌入式目录生成，并由 GitHub Actions 在同步前运行语法、目录一致性以及 DNS 失败/超时边界测试；DoT 仍由 Go 版本的进程内解析器使用
 
 历史更新日志：[跳转](https://github.com/spiritLHLS/ecs/blob/main/CHANGELOG.md)
 
@@ -348,4 +341,3 @@ https://github.com/spiritLHLS/ecsspeed
 ## Stargazers Over Time
 
 [![Stargazers Over Time](https://starchart.cc/spiritLHLS/ecs.svg?variant=adaptive)](https://www.spiritlhl.net)
-
