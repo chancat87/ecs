@@ -87,11 +87,7 @@ https://github.com/spiritLHLS/one-click-installation-script
 
 2026.08.27
 
-- `speedtest-go` 下载版本升级至 `v1.8.2`；该上游会为 speedtest.net 的客户端配置请求附加随机参数，避免共享 CDN 返回其他用户的缓存配置
-- `ecs.sh` 与独立的 `ipcheck.sh` 会先保持原有系统 DNS 和 curl 请求；只有 curl 明确报出 `Could not resolve host` 时，才使用固定地址验证内置 DoH 上游并重试
-- 超时、TLS/HTTP/CDN 失败、丢包及 `Could not resolve proxy` 均不会被误判为 DNS 缺失；不会改写 `/etc/resolv.conf`、`/etc/hosts` 或其他系统解析配置
-- 每次实际回退都会通过真实 DNS 报文验证候选 DoH 服务，选择查询耗时最低者并缓存在本次临时目录；不支持 `--doh-url` 的旧 curl 保持原失败行为
-- Shell 内嵌 DoH 地址由 `basics` 的已验证嵌入式目录生成，并由 GitHub Actions 在同步前运行语法、目录一致性以及 DNS 失败/超时边界测试；DoT 仍由 Go 版本的进程内解析器使用
+- `speedtest-go` 下载版本升级至 `v1.8.2`
 
 历史更新日志：[跳转](https://github.com/spiritLHLS/ecs/blob/main/CHANGELOG.md)
 
