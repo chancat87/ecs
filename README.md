@@ -87,7 +87,7 @@ https://github.com/spiritLHLS/one-click-installation-script
 
 2026.08.27
 
-- `speedtest-go` 下载版本升级至 `v1.8.3`，并统一使用 HTTPS Pastebin 分享链接
+- `speedtest-go` 下载版本升级至 `v1.8.2`
 
 历史更新日志：[跳转](https://github.com/spiritLHLS/ecs/blob/main/CHANGELOG.md)
 

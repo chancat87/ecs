@@ -188,9 +188,9 @@ fi
 
 # =============== 自定义基础参数 ==============
 if [ "$en_status" = true ]; then
-	changeLog="speedtest-go 1.8.3 and conservative DoH bootstrap for explicit DNS failures"
+    changeLog="VPS Fusion Monster Test From Multi-script"
 else
-	changeLog="升级 speedtest-go 1.8.3；仅在明确 DNS 解析失败时启用保守 DoH 引导"
+    changeLog="VPS融合怪测试(集百家之长)"
 fi
 http_short_url=""
 https_short_url=""
@@ -232,7 +232,7 @@ test_ip_s6=("240e:e1:aa00:4000::24" "2408:80f1:21:5003::a" "2409:8c1e:75b0:3003:
 test_area_b6=("北京电信" "北京联通" "北京移动")
 test_ip_b6=("2400:89c0:1053:3::69" "2400:89c0:1013:3::54" "2409:8c00:8421:1303::55")
 BrowserUA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.74 Safari/537.36"
-Speedtest_Go_version="1.8.3"
+Speedtest_Go_version="1.8.2"
 
 # =============== 基础信息设置 ===============
 REGEX=("debian|astra" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "freebsd" "alpine" "openbsd" "opencloudos")
@@ -307,7 +307,7 @@ global_exit_action() {
     echo -en "$SHOW_CURSOR"
     if [ "$build_text_status" = true ]; then
         build_text
-		if [ -n "$https_short_url" ]; then
+        if [ -n "$https_short_url" ] || [ -n "$http_short_url" ]; then
             if [ "$en_status" = true ]; then
                 _green "  ShortLink:"
             else
@@ -315,6 +315,9 @@ global_exit_action() {
             fi
             if [ -n "$https_short_url" ]; then
                 _blue "    $https_short_url"
+            fi
+            if [ -n "$http_short_url" ]; then
+                _blue "    $http_short_url"
             fi
             if [ "$en_status" = true ]; then
                 _yellow "  Every Test Benchmark: https://bash.spiritlhl.net/ecsguide"
@@ -372,199 +375,13 @@ next() {
     printf "%-72s\n" "-" | sed 's/\s/-/g'
 }
 
-# =============== 无本地 DNS 时的保守引导 ===============
-# The bootstrap is deliberately process-local: normal DNS is always tried
-# first, and encrypted DNS is considered only after curl reports an explicit
-# hostname-resolution error. No resolver file is ever modified.
-DOH_QUERY_PAYLOAD="AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE"
-DOH_BOOTSTRAP_CACHE="${TEMP_DIR}/doh-bootstrap.endpoint"
-DOH_BOOTSTRAP_LOCK="${TEMP_DIR}/doh-bootstrap.lock"
-## DOH_BOOTSTRAP_CATALOG_BEGIN
-DOH_BOOTSTRAP_SPECS=(
-    "AliDNS|dns.alidns.com|https://dns.alidns.com/dns-query|223.5.5.5,223.6.6.6,2400:3200::1,2400:3200:baba::1|223.5.5.5,223.6.6.6"
-    "DNSPod|doh.pub|https://doh.pub/dns-query|1.12.12.12,120.53.53.53|1.12.12.12,120.53.53.53"
-    "360 Public DNS|doh.360.cn|https://doh.360.cn/dns-query|101.198.192.33,101.198.193.29,101.199.254.118,112.65.69.15,123.6.48.18|101.198.192.33,101.198.193.29,101.199.254.118,112.65.69.15,123.6.48.18"
-    "DNS.SB|doh.sb|https://doh.sb/dns-query|185.222.222.222,45.11.45.11|185.222.222.222,45.11.45.11"
-    "Cloudflare|cloudflare-dns.com|https://cloudflare-dns.com/dns-query|1.0.0.1,1.1.1.1,104.16.248.249,104.16.249.249,2606:4700:4700::1001,2606:4700:4700::1111|1.0.0.1,1.1.1.1,104.16.248.249,104.16.249.249"
-    "Google|dns.google|https://dns.google/dns-query|8.8.4.4,8.8.8.8,2001:4860:4860::8844,2001:4860:4860::8888|8.8.4.4,8.8.8.8"
-    "Quad9 Unsecured|dns10.quad9.net|https://dns10.quad9.net/dns-query|149.112.112.10,9.9.9.10,2620:fe::10,2620:fe::fe:10|149.112.112.10,9.9.9.10"
-    "OpenDNS|doh.opendns.com|https://doh.opendns.com/dns-query|146.112.41.2|146.112.41.2"
-    "AdGuard Unfiltered|unfiltered.adguard-dns.com|https://unfiltered.adguard-dns.com/dns-query|94.140.14.140,94.140.14.141,2a10:50c0::1:ff,2a10:50c0::2:ff|94.140.14.140,94.140.14.141"
-)
-## DOH_BOOTSTRAP_CATALOG_END
-
-curl_doh_supported() {
-    command -v curl >/dev/null 2>&1 || return 1
-    command curl --help all 2>/dev/null | grep -Fq -- "--doh-url"
-}
-
-doh_cache_read() {
-    [ -s "$DOH_BOOTSTRAP_CACHE" ] || return 1
-    IFS='|' read -r DOH_BOOTSTRAP_NAME DOH_BOOTSTRAP_HOST DOH_BOOTSTRAP_URL DOH_BOOTSTRAP_ADDRESSES <"$DOH_BOOTSTRAP_CACHE" || return 1
-    [[ "$DOH_BOOTSTRAP_NAME" =~ ^[A-Za-z0-9._[:space:]-]+$ ]] || return 1
-    [[ "$DOH_BOOTSTRAP_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
-    [[ "$DOH_BOOTSTRAP_URL" == https://* ]] || return 1
-    [ -n "$DOH_BOOTSTRAP_ADDRESSES" ] || return 1
-    return 0
-}
-
-doh_probe_spec() {
-    local spec="$1"
-    local name host endpoint addresses ipv4 result status content size latency response_file response_flags
-    IFS='|' read -r name host endpoint addresses ipv4 <<<"$spec"
-    response_file=$(mktemp "$TEMP_DIR/doh-response.XXXXXX") || return 1
-    result=$(command curl --silent --show-error --fail --connect-timeout 2 --max-time 5 \
-        --resolve "${host}:443:${addresses}" \
-        -H 'Accept: application/dns-message' \
-        -o "$response_file" -w '%{http_code}|%{content_type}|%{size_download}|%{time_total}' \
-        "${endpoint}?dns=${DOH_QUERY_PAYLOAD}" 2>/dev/null) || {
-        # Some older curl builds reject mixed IPv4/IPv6 --resolve values. Keep
-        # the IPv4 path as a compatibility retry without changing semantics.
-        if [ "$addresses" = "$ipv4" ]; then
-            rm -f -- "$response_file"
-            return 1
-        fi
-        result=$(command curl --silent --show-error --fail --connect-timeout 2 --max-time 5 \
-            --resolve "${host}:443:${ipv4}" \
-            -H 'Accept: application/dns-message' \
-            -o "$response_file" -w '%{http_code}|%{content_type}|%{size_download}|%{time_total}' \
-            "${endpoint}?dns=${DOH_QUERY_PAYLOAD}" 2>/dev/null) || {
-            rm -f -- "$response_file"
-            return 1
-        }
-    }
-    IFS='|' read -r status content size latency <<<"$result"
-    response_flags=$(od -An -j 2 -N 1 -tu1 "$response_file" 2>/dev/null | tr -d '[:space:]')
-    rm -f -- "$response_file"
-    [[ "$status" = "200" && "$content" == *dns-message* ]] || return 1
-    [[ "$size" =~ ^[0-9]+$ && "$size" -ge 12 ]] || return 1
-    [[ "$response_flags" =~ ^[0-9]+$ && $((response_flags & 128)) -ne 0 ]] || return 1
-    [[ "$latency" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
-    printf '%s|%s|%s|%s|%s\n' "$latency" "$name" "$host" "$endpoint" "$addresses"
-}
-
-select_doh_bootstrap() {
-    doh_cache_read && return 0
-    curl_doh_supported || return 1
-    mkdir -p "$TEMP_DIR" 2>/dev/null || return 1
-
-    if mkdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null; then
-        # Another caller may have completed the probe while this process waited
-        # for the lock, so always re-check the cache inside the critical section.
-        if doh_cache_read; then
-            rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
-            return 0
-        fi
-        local probe_dir
-        probe_dir=$(mktemp -d "$TEMP_DIR/doh-probes.XXXXXX") || {
-            rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
-            return 1
-        }
-        local probe_pids=()
-        local probe_index=0
-        local spec
-        for spec in "${DOH_BOOTSTRAP_SPECS[@]}"; do
-            (doh_probe_spec "$spec" >"$probe_dir/$probe_index") &
-            probe_pids+=("$!")
-            probe_index=$((probe_index + 1))
-        done
-        local probe_pid
-        for probe_pid in "${probe_pids[@]}"; do
-            wait "$probe_pid" 2>/dev/null || true
-        done
-
-        local best=""
-        local probe_file candidate
-        for probe_file in "$probe_dir"/*; do
-            [ -s "$probe_file" ] || continue
-            candidate=$(sed -n '1p' "$probe_file")
-            [[ "$candidate" =~ ^[0-9]+([.][0-9]+)?\| ]] || continue
-            if [ -z "$best" ] || awk -F'|' -v left="$candidate" -v right="$best" 'BEGIN { exit !((left + 0) < (right + 0)) }'; then
-                best="$candidate"
-            fi
-        done
-
-        local selected_status=1
-        if [ -n "$best" ]; then
-            IFS='|' read -r _ DOH_BOOTSTRAP_NAME DOH_BOOTSTRAP_HOST DOH_BOOTSTRAP_URL DOH_BOOTSTRAP_ADDRESSES <<<"$best"
-            printf '%s|%s|%s|%s\n' "$DOH_BOOTSTRAP_NAME" "$DOH_BOOTSTRAP_HOST" "$DOH_BOOTSTRAP_URL" "$DOH_BOOTSTRAP_ADDRESSES" >"$DOH_BOOTSTRAP_CACHE"
-            doh_cache_read && selected_status=0
-        fi
-        for probe_file in "$probe_dir"/*; do
-            [ -f "$probe_file" ] && rm -f -- "$probe_file"
-        done
-        rmdir "$probe_dir" 2>/dev/null || true
-        rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
-        return "$selected_status"
-    fi
-
-    # Parallel downloads share one bounded probe. Wait for the owner rather
-    # than probing every endpoint once per download.
-    for _ in $(seq 1 60); do
-        doh_cache_read && return 0
-        [ -d "$DOH_BOOTSTRAP_LOCK" ] || break
-        sleep 0.2
-    done
-    doh_cache_read
-}
-
-curl_with_dns_bootstrap() {
-    local error_root="${TEMP_DIR:-${TMPDIR:-/tmp}}"
-    local error_file
-    error_file=$(mktemp "$error_root/curl-error.XXXXXX" 2>/dev/null) || {
-        command curl "$@"
-        return $?
-    }
-
-    local curl_status
-    if command curl "$@" 2>"$error_file"; then
-        curl_status=0
-    else
-        curl_status=$?
-    fi
-    if [ "$curl_status" -eq 0 ]; then
-        rm -f -- "$error_file"
-        return 0
-    fi
-    if ! grep -Fqi 'Could not resolve host' "$error_file"; then
-        cat "$error_file" >&2
-        rm -f -- "$error_file"
-        return "$curl_status"
-    fi
-    if ! select_doh_bootstrap; then
-        cat "$error_file" >&2
-        rm -f -- "$error_file"
-        return "$curl_status"
-    fi
-
-    local retry_error
-    retry_error=$(mktemp "$error_root/curl-doh-error.XXXXXX" 2>/dev/null) || retry_error="$error_file"
-    local retry_status
-    if command curl "$@" \
-        --doh-url "$DOH_BOOTSTRAP_URL" \
-        --resolve "${DOH_BOOTSTRAP_HOST}:443:${DOH_BOOTSTRAP_ADDRESSES}" \
-        2>"$retry_error"; then
-        retry_status=0
-    else
-        retry_status=$?
-    fi
-    if [ "$retry_status" -ne 0 ]; then
-        cat "$retry_error" >&2
-    fi
-    if [ "$retry_error" != "$error_file" ]; then
-        rm -f -- "$retry_error"
-    fi
-    rm -f -- "$error_file"
-    return "$retry_status"
-}
-
 # =============== 组件预安装及文件预下载 部分 ===============
 checkver() {
     local update_file="${TEMP_DIR}/ecs1.sh"
     check_cdn_file
     running_version=$(sed -n '7s/ver="\(.*\)"/\1/p' "$0")
-    curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' "${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/ecs/main/ecs.sh" -o "$update_file" ||
-        curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' "https://raw.githubusercontent.com/spiritLHLS/ecs/main/ecs.sh" -o "$update_file" || return
+    curl --fail --location --proto '=https' --proto-redir '=https' "${cdn_success_url}https://raw.githubusercontent.com/spiritLHLS/ecs/main/ecs.sh" -o "$update_file" ||
+        curl --fail --location --proto '=https' --proto-redir '=https' "https://raw.githubusercontent.com/spiritLHLS/ecs/main/ecs.sh" -o "$update_file" || return
     chmod 700 "$update_file"
     downloaded_version=$(sed -n '7s/ver="\(.*\)"/\1/p' "$update_file")
     if ! bash -n "$update_file" || [[ ! "$downloaded_version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]]; then
@@ -775,7 +592,7 @@ check_dnsutils() {
 }
 
 checkpip() {
-    [ "${Var_OSRelease}" = "freebsd" ] && curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' https://bootstrap.pypa.io/get-pip.py -o "$TEMP_DIR/get-pip.py" && chmod 700 "$TEMP_DIR/get-pip.py" && python3 "$TEMP_DIR/get-pip.py" && rm -f "$TEMP_DIR/get-pip.py" && return
+    [ "${Var_OSRelease}" = "freebsd" ] && curl --fail --location --proto '=https' --proto-redir '=https' https://bootstrap.pypa.io/get-pip.py -o "$TEMP_DIR/get-pip.py" && chmod 700 "$TEMP_DIR/get-pip.py" && python3 "$TEMP_DIR/get-pip.py" && rm -f "$TEMP_DIR/get-pip.py" && return
     local pvr="$1"
     local pip_version=$(pip --version 2>&1)
     if [[ $? -eq 0 && $pip_version != *"command not found"* ]]; then
@@ -901,10 +718,10 @@ download_file() {
     local progress_file=$3
     # 获取文件总大小
     local total_size
-    total_size=$(curl_with_dns_bootstrap -sIL --proto '=https' --proto-redir '=http,https' "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+    total_size=$(curl -sIL --proto '=https' --proto-redir '=http,https' "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
     # 如果上述方式获取失败，尝试不限制协议重试（CDN内部可能使用HTTP）
     if [ -z "$total_size" ] || [ "$total_size" -eq 0 ] 2>/dev/null; then
-        total_size=$(curl_with_dns_bootstrap -sIL "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+        total_size=$(curl -sIL "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
     fi
     total_size=${total_size:-0}
     # 去掉前导零，避免被当作八进制
@@ -944,7 +761,7 @@ download_file() {
 
     local download_failed=0
     # 尝试 curl 下载（后台运行，配合独立监控进程更新进度）
-    curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' "$url" -o "$output" >/dev/null 2>&1 &
+    curl --fail --location --proto '=https' --proto-redir '=https' "$url" -o "$output" >/dev/null 2>&1 &
     local dl_pid=$!
     _dl_monitor "$output" "$total_size" "$progress_file" "$dl_pid" &
     local monitor_pid=$!
@@ -1011,12 +828,12 @@ main_download() {
         echo "100" >"$PROGRESS_DIR/$file"
         ;;
     nexttrace)
-        NEXTTRACE_VERSION=$(curl_with_dns_bootstrap -m 6 -sSL --proto '=https' --proto-redir '=https' "https://api.github.com/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
+        NEXTTRACE_VERSION=$(curl -m 6 -sSL --proto '=https' --proto-redir '=https' "https://api.github.com/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
         if [ -z "$NEXTTRACE_VERSION" ]; then
-            NEXTTRACE_VERSION=$(curl_with_dns_bootstrap -m 6 -sSL --proto '=https' --proto-redir '=https' "https://fd.spiritlhl.top/https://api.github.com/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
+            NEXTTRACE_VERSION=$(curl -m 6 -sSL --proto '=https' --proto-redir '=https' "https://fd.spiritlhl.top/https://api.github.com/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
         fi
         if [ -z "$NEXTTRACE_VERSION" ]; then
-            NEXTTRACE_VERSION=$(curl_with_dns_bootstrap -m 6 -sSL --proto '=https' --proto-redir '=https' "https://githubapi.spiritlhl.top/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
+            NEXTTRACE_VERSION=$(curl -m 6 -sSL --proto '=https' --proto-redir '=https' "https://githubapi.spiritlhl.top/repos/nxtrace/Ntrace-core/releases/latest" | awk -F \" '/tag_name/{print $4}')
         fi
         [[ "$NEXTTRACE_VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
         local url="${cdn_success_url}https://github.com/nxtrace/Ntrace-core/releases/download/${NEXTTRACE_VERSION}/${NEXTTRACE_FILE}"
@@ -1197,7 +1014,7 @@ EOF
 check_cdn() {
     local o_url=$1
     for cdn_url in "${cdn_urls[@]}"; do
-        if curl_with_dns_bootstrap -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+        if curl -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
             return
         fi
@@ -1281,7 +1098,7 @@ check_nat_type() {
 check_china() {
     _yellow "IP area being detected ......"
     if [[ -z "${CN}" ]]; then
-        if [[ $(curl_with_dns_bootstrap -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
+        if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
             if [ "$en_status" = true ]; then
                 _yellow "According to ipapi.co, current IP may be in China"
             else
@@ -1315,7 +1132,7 @@ check_china() {
 }
 
 statistics_of_run_times() {
-    COUNT=$(curl_with_dns_bootstrap -sm10 "https://hits.spiritlhl.net/ecs?action=hit&title=Hits&title_bg=%23555555&count_bg=%2324dde1&edge_flat=false" 2>/dev/null)
+    COUNT=$(curl -sm10 "https://hits.spiritlhl.net/ecs?action=hit&title=Hits&title_bg=%23555555&count_bg=%2324dde1&edge_flat=false" 2>/dev/null)
     if [ -z "$COUNT" ]; then
         TODAY="N/A"
         TOTAL="N/A"
@@ -2135,7 +1952,7 @@ download_speedtest_file() {
     fi
     local url3="https://github.com/showwin/speedtest-go/releases/download/v${Speedtest_Go_version}/speedtest-go_${Speedtest_Go_version}_Linux_${sys_bit_go}.tar.gz"
     if [[ -z "${CN}" || "${CN}" != true ]]; then
-        curl_with_dns_bootstrap --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tar.gz" "${url3}" || curl_with_dns_bootstrap --fail -sL --proto '=https' --proto-redir '=https' -m 15 -o "$TEMP_DIR/speedtest.tar.gz" "${url3}"
+        curl --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tar.gz" "${url3}" || curl --fail -sL --proto '=https' --proto-redir '=https' -m 15 -o "$TEMP_DIR/speedtest.tar.gz" "${url3}"
         if [[ $? -eq 0 ]] && is_safe_tar_archive "$TEMP_DIR/speedtest.tar.gz" && tar -zxf "$TEMP_DIR/speedtest.tar.gz" -C "$SPEEDTEST_DIR" && chmod 700 "$SPEEDTEST_DIR/speedtest-go"; then
             # _green "Successfully downloaded speedtest-go"
             rm -f "$TEMP_DIR/speedtest.tar.gz"
@@ -2151,7 +1968,7 @@ download_speedtest_file() {
             local url1="https://filedown.me/Linux/Tool/speedtest_cli/ookla-speedtest-1.0.0-${sys_bit}-linux.tgz"
             local url2="https://bintray.com/ookla/download/download_file?file_path=ookla-speedtest-1.0.0-${sys_bit}-linux.tgz"
         fi
-        curl_with_dns_bootstrap --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tgz" "${url1}" || curl_with_dns_bootstrap --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tgz" "${url2}"
+        curl --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tgz" "${url1}" || curl --fail -sL --proto '=https' --proto-redir '=https' -m 10 -o "$TEMP_DIR/speedtest.tgz" "${url2}"
         if [[ $? -eq 0 ]] && is_safe_tar_archive "$TEMP_DIR/speedtest.tgz" && tar -zxf "$TEMP_DIR/speedtest.tgz" -C "$SPEEDTEST_DIR" && chmod 700 "$SPEEDTEST_DIR/speedtest"; then
             rm -f "$TEMP_DIR/speedtest.tgz"
             return
@@ -2159,7 +1976,7 @@ download_speedtest_file() {
             rm -f "$TEMP_DIR/speedtest.tgz"
         fi
     else
-        curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' -o "$TEMP_DIR/speedtest.tar.gz" "${cdn_success_url}${url3}" || curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' -o "$TEMP_DIR/speedtest.tar.gz" "${url3}"
+        curl --fail --location --proto '=https' --proto-redir '=https' -o "$TEMP_DIR/speedtest.tar.gz" "${cdn_success_url}${url3}" || curl --fail --location --proto '=https' --proto-redir '=https' -o "$TEMP_DIR/speedtest.tar.gz" "${url3}"
         if [[ $? -eq 0 ]] && is_safe_tar_archive "$TEMP_DIR/speedtest.tar.gz" && tar -zxf "$TEMP_DIR/speedtest.tar.gz" -C "$SPEEDTEST_DIR" && chmod 700 "$SPEEDTEST_DIR/speedtest-go"; then
             # _green "Used unofficial speedtest-go"
             rm -f "$TEMP_DIR/speedtest.tar.gz"
@@ -2396,7 +2213,7 @@ get_nearest_data() {
     if [[ -z "${CN}" || "${CN}" != true ]]; then
         local retries=0
         while [[ $retries -lt 2 ]]; do
-            response=$(curl_with_dns_bootstrap -sL -m 2 "$url")
+            response=$(curl -sL -m 2 "$url")
             if [[ $? -eq 0 ]]; then
                 break
             else
@@ -2406,11 +2223,11 @@ get_nearest_data() {
         done
         if [[ $retries -eq 2 ]]; then
             url="${cdn_success_url}${url}"
-            response=$(curl_with_dns_bootstrap -sL -m 6 "$url")
+            response=$(curl -sL -m 6 "$url")
         fi
     else
         url="${cdn_success_url}${url}"
-        response=$(curl_with_dns_bootstrap -sL -m 8 "$url")
+        response=$(curl -sL -m 8 "$url")
     fi
     while read line; do
         if [[ -n "$line" ]]; then
@@ -2495,7 +2312,7 @@ get_nearest_data2() {
     if [[ -z "${CN}" || "${CN}" != true ]]; then
         local retries=0
         while [[ $retries -lt 2 ]]; do
-            response=$(curl_with_dns_bootstrap -sL -m 2 "$url")
+            response=$(curl -sL -m 2 "$url")
             if [[ $? -eq 0 ]]; then
                 break
             else
@@ -2505,11 +2322,11 @@ get_nearest_data2() {
         done
         if [[ $retries -eq 2 ]]; then
             url="${cdn_success_url}${url}"
-            response=$(curl_with_dns_bootstrap -sL -m 6 "$url")
+            response=$(curl -sL -m 6 "$url")
         fi
     else
         url="${cdn_success_url}${url}"
-        response=$(curl_with_dns_bootstrap -sL -m 8 "$url")
+        response=$(curl -sL -m 8 "$url")
     fi
     ip_list=()
     city_list=()
@@ -2952,7 +2769,7 @@ check_ipv4() {
         IPV4=""
         local API_NET=("https://ipv4.ip.sb" "https://ipget.net" "https://ip.ping0.cc" "https://ip4.seeip.org" "https://api.my-ip.io/ip" "https://ipv4.icanhazip.com" "https://api.ipify.org")
         for p in "${API_NET[@]}"; do
-            response=$(curl_with_dns_bootstrap -s4m8 --proto '=https' --proto-redir '=https' "$p")
+            response=$(curl -s4m8 --proto '=https' --proto-redir '=https' "$p")
             response=$(printf '%s' "$response" | tr -d '[:space:]')
             if is_valid_ipv4 "$response"; then
                 IP_API="$p"
@@ -3020,7 +2837,7 @@ check_ipv6() {
         IPV6=""
         local API_NET=("https://ipv6.ip.sb" "https://ipget.net" "https://ipv6.ping0.cc" "https://api.my-ip.io/ip" "https://ipv6.icanhazip.com")
         for p in "${API_NET[@]}"; do
-            if response=$(curl_with_dns_bootstrap -sL6m8 --proto '=https' --proto-redir '=https' "$p"); then
+            if response=$(curl -sL6m8 --proto '=https' --proto-redir '=https' "$p"); then
                 response=$(printf '%s' "$response" | tr -d '[:space:]')
             else
                 response=""
@@ -3037,7 +2854,7 @@ check_ipv6() {
 
 check_ip_info_by_ipinfo() {
     rm -f "$IPINFO_RESULT_FILE"
-    local ip_info=$(curl_with_dns_bootstrap -s --proto '=https' --proto-redir '=https' https://ipinfo.io 2>/dev/null)
+    local ip_info=$(curl -s --proto '=https' --proto-redir '=https' https://ipinfo.io 2>/dev/null)
     if [ $? -eq 0 ]; then
         local ip=$(echo "$ip_info" | grep -o '"ip": "[^"]*' | cut -d'"' -f4)
         local city=$(echo "$ip_info" | grep -o '"city": "[^"]*' | cut -d'"' -f4)
@@ -3066,14 +2883,14 @@ check_ip_info_by_ipinfo() {
             fi
         fi
     else
-        local ipv4_asn=$(curl_with_dns_bootstrap -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/org 2>/dev/null)
+        local ipv4_asn=$(curl -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/org 2>/dev/null)
         if [ "$?" -ne 0 ] || echo "$ipv4_asn" | grep -qE "(Comodo Secure DNS|Rate limit exceeded)|Your client does not have permission to get URL" >/dev/null 2>&1; then
             local ipv4_asn_info="None"
             local ipv4_location="None"
         else
-            local ipv4_city=$(curl_with_dns_bootstrap -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/city 2>/dev/null)
-            local ipv4_region=$(curl_with_dns_bootstrap -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/region 2>/dev/null)
-            local ipv4_country=$(curl_with_dns_bootstrap -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/country 2>/dev/null)
+            local ipv4_city=$(curl -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/city 2>/dev/null)
+            local ipv4_region=$(curl -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/region 2>/dev/null)
+            local ipv4_country=$(curl -sL4m6 --proto '=https' --proto-redir '=https' -A Mozilla https://ipinfo.io/country 2>/dev/null)
             if [ -n "$ipv4_asn" ] && [ -n "$ipv4_city" ] && [ -n "$ipv4_country" ]; then
                 local ipv4_asn_info="${ipv4_asn}"
                 local ipv4_location="${ipv4_city} / ${ipv4_region} / ${ipv4_country}"
@@ -3112,7 +2929,7 @@ check_ip_info_by_ipinfo() {
 
 check_ip_info_by_maxmind() {
     rm -f "$MAXMIND_RESULT_FILE"
-    local ipv4_result=$(curl_with_dns_bootstrap -sL4m6 -A Mozilla \
+    local ipv4_result=$(curl -sL4m6 -A Mozilla \
         -H "Referer: https://www.maxmind.com/en/locate-my-ip-address" \
         "https://geoip.maxmind.com/geoip/v2.1/city/me" 2>/dev/null)
     if [ -n "$ipv4_result" ]; then
@@ -3165,7 +2982,7 @@ check_ip_info_by_maxmind() {
     echo "$ipv4_asn_info" >>"$MAXMIND_RESULT_FILE"
     echo "$ipv4_location" >>"$MAXMIND_RESULT_FILE"
     sleep 1
-    local ipv6_result=$(curl_with_dns_bootstrap -sL6m6 -A Mozilla \
+    local ipv6_result=$(curl -sL6m6 -A Mozilla \
         -H "Referer: https://www.maxmind.com/en/locate-my-ip-address" \
         "https://geoip.maxmind.com/geoip/v2.1/city/me" 2>/dev/null)
     if [ -n "$ipv6_result" ]; then
@@ -3221,7 +3038,7 @@ check_ip_info_by_maxmind() {
 
 check_ip_info_by_cloudflare() {
     rm -f "$CLOUDFLARE_RESULT_FILE"
-    local ipv4_output=$(curl_with_dns_bootstrap -sL4m6 -A Mozilla https://speed.cloudflare.com/meta 2>/dev/null)
+    local ipv4_output=$(curl -sL4m6 -A Mozilla https://speed.cloudflare.com/meta 2>/dev/null)
     local ipv4_asn=$(echo "$ipv4_output" | grep -oE '"asn":[0-9]+' | grep -oE '[0-9]+')
     local ipv4_as_organization=$(echo "$ipv4_output" | grep -oE '"asOrganization":"[^"]+"' | sed 's/"asOrganization":"//g' | sed 's/"//g')
     local ipv4_city=$(echo "$ipv4_output" | grep -oE '"city":"[^"]+"' | sed 's/"city":"//g' | sed 's/"//g')
@@ -3246,7 +3063,7 @@ check_ip_info_by_cloudflare() {
     echo "$ipv4_asn_info" >>"$CLOUDFLARE_RESULT_FILE"
     echo "$ipv4_location" >>"$CLOUDFLARE_RESULT_FILE"
     sleep 1
-    local ipv6_output=$(curl_with_dns_bootstrap -sL6m6 -A Mozilla https://speed.cloudflare.com/meta 2>/dev/null)
+    local ipv6_output=$(curl -sL6m6 -A Mozilla https://speed.cloudflare.com/meta 2>/dev/null)
     local ipv6_asn=$(echo "$ipv6_output" | grep -oE '"asn":[0-9]+' | grep -oE '[0-9]+')
     local ipv6_as_organization=$(echo "$ipv6_output" | grep -oE '"asOrganization":"[^"]+"' | sed 's/"asOrganization":"//g' | sed 's/"//g')
     local ipv6_city=$(echo "$ipv6_output" | grep -oE '"city":"[^"]+"' | sed 's/"city":"//g' | sed 's/"//g')
@@ -3274,7 +3091,7 @@ check_ip_info_by_cloudflare() {
 
 check_ip_info_by_ipsb() {
     rm -f "$IPSB_RESULT_FILE"
-    local result_ipv4=$(curl_with_dns_bootstrap -sL4m6 -A Mozilla https://api.ip.sb/geoip 2>/dev/null)
+    local result_ipv4=$(curl -sL4m6 -A Mozilla https://api.ip.sb/geoip 2>/dev/null)
     if [ "$?" -ne 0 ] || echo "$result_ipv4" | grep -qE "(Comodo Secure DNS|Rate limit exceeded)|Your client does not have permission to get URL" >/dev/null 2>&1; then
         local ipv4_asn_info="None"
         local ipv4_location="None"
@@ -3312,7 +3129,7 @@ check_ip_info_by_ipsb() {
     echo "$ipv4_asn_info" >>"$IPSB_RESULT_FILE"
     echo "$ipv4_location" >>"$IPSB_RESULT_FILE"
     sleep 1
-    local result_ipv6=$(curl_with_dns_bootstrap -sL6m6 -A Mozilla https://api.ip.sb/geoip 2>/dev/null)
+    local result_ipv6=$(curl -sL6m6 -A Mozilla https://api.ip.sb/geoip 2>/dev/null)
     if [ "$?" -ne 0 ] || echo "$result_ipv6" | grep -qE "(Comodo Secure DNS|Rate limit exceeded)|Your client does not have permission to get URL" >/dev/null 2>&1; then
         local ipv6_asn_info="None"
         local ipv6_location="None"
@@ -3776,7 +3593,7 @@ translate_status() {
 }
 
 google() {
-    local curl_result=$(curl_with_dns_bootstrap -sL -m 10 "https://www.google.com/search?q=www.spiritysdx.top" -H "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:54.0) Gecko/20100101 Firefox/54.0")
+    local curl_result=$(curl -sL -m 10 "https://www.google.com/search?q=www.spiritysdx.top" -H "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:54.0) Gecko/20100101 Firefox/54.0")
     rm -f "$IP_QUALITY_GOOGLE_FILE"
     if [ "$en_status" = true ]; then
         if echo "$curl_result" | grep -q "二叉树的博客"; then
@@ -3839,7 +3656,7 @@ eo6s() {
     rm -f "$TEMP_DIR/eo6s_result"
     local interface=$(ls /sys/class/net/ | grep -E '^(eth|en)' | head -n 1)
     if [ -n "$interface" ]; then
-        local current_ipv6=$(curl_with_dns_bootstrap -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+        local current_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
         if ! is_valid_ipv6 "$current_ipv6"; then
             echo "None" >"$TEMP_DIR/eo6s_result"
             return
@@ -3854,7 +3671,7 @@ eo6s() {
             return
         fi
         sleep 6
-        local updated_ipv6=$(curl_with_dns_bootstrap -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+        local updated_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
         is_valid_ipv6 "$updated_ipv6" || updated_ipv6=""
         echo "updated_ipv6: ${updated_ipv6}"
         if ip addr del "${EO6S_NEW_IPV6}/128" dev "$EO6S_INTERFACE"; then
@@ -3862,7 +3679,7 @@ eo6s() {
             EO6S_INTERFACE=""
         fi
         sleep 6
-        local final_ipv6=$(curl_with_dns_bootstrap -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+        local final_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
         is_valid_ipv6 "$final_ipv6" || final_ipv6=""
         echo "final_ipv6: ${final_ipv6}"
         local ipv6_prefixlen=""
@@ -4201,7 +4018,7 @@ lmc999_script() {
     else
         echo -e "---------------------TikTok解锁--感谢lmc999的源脚本---------------------"
     fi
-    local Ftmpresult=$(curl_with_dns_bootstrap --user-agent "${BrowserUA}" -sL --proto '=https' --proto-redir '=https' -m 10 "https://www.tiktok.com/")
+    local Ftmpresult=$(curl --user-agent "${BrowserUA}" -sL --proto '=https' --proto-redir '=https' -m 10 "https://www.tiktok.com/")
     if [[ "$Ftmpresult" = "curl"* ]]; then
         _red "\r Tiktok Region:\t\t${Font_Red}Failed (Network Connection)${Font_Suffix}"
         return
@@ -4212,7 +4029,7 @@ lmc999_script() {
         _green "\r Tiktok Region:\t\t${Font_Green}【${FRegion}】${Font_Suffix}"
         return
     fi
-    local STmpresult=$(curl_with_dns_bootstrap --user-agent "${BrowserUA}" -sL --proto '=https' --proto-redir '=https' -m 10 -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9" -H "Accept-Encoding: gzip" -H "Accept-Language: en" "https://www.tiktok.com" | gunzip 2>/dev/null)
+    local STmpresult=$(curl --user-agent "${BrowserUA}" -sL --proto '=https' --proto-redir '=https' -m 10 -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9" -H "Accept-Encoding: gzip" -H "Accept-Language: en" "https://www.tiktok.com" | gunzip 2>/dev/null)
     local SRegion=$(echo "$STmpresult" | grep '"region":' | sed 's/.*"region"//' | cut -f2 -d'"')
     [[ "$SRegion" =~ ^[A-Za-z]{2}$ ]] || SRegion=""
     if [ -n "$SRegion" ]; then
@@ -4775,7 +4592,7 @@ rm_script() {
 fetch_remote_script() {
     local url="$1"
     local output="$2"
-    curl_with_dns_bootstrap -fsSL --proto '=https' --proto-redir '=https' "$url" -o "$output"
+    curl -fsSL --proto '=https' --proto-redir '=https' "$url" -o "$output"
 }
 
 run_remote_bash_path() {
@@ -4864,18 +4681,29 @@ build_text() {
             echo "Files larger than 25KB (${file_size} bytes) are not uploaded."
             return
         fi
-        http_short_url=$(curl_with_dns_bootstrap --ipv4 -sL -m 10 -X POST \
+        http_short_url=$(curl --ipv4 -sL -m 10 -X POST \
             -H "Authorization: $ST" \
             -F "file=@${myvar}/test_result.txt" \
             "https://paste.spiritlhl.net/api/UL/upload")
         if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
-			file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
-			http_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
-			https_short_url="$http_short_url"
-		else
-			http_short_url=""
-			https_short_url=""
-		fi
+            file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
+            http_short_url="http://hpaste.spiritlhl.net/#/show/${file_id}"
+            https_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
+        else
+            # 如果 HTTP 失败，尝试 HTTPS
+            https_short_url=$(curl --ipv6 -sL -m 10 -X POST \
+                -H "Authorization: $ST" \
+                -F "file=@${myvar}/test_result.txt" \
+                "https://paste.spiritlhl.net/api/UL/upload")
+            if [ $? -eq 0 ] && [ -n "$https_short_url" ] && echo "$https_short_url" | grep -q "show"; then
+                file_id=$(echo "$https_short_url" | grep -o '[^/]*$')
+                http_short_url="http://hpaste.spiritlhl.net/#/show/${file_id}"
+                https_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
+            else
+                http_short_url=""
+                https_short_url=""
+            fi
+        fi
     fi
 }
 
@@ -4902,11 +4730,11 @@ comprehensive_test_script_options() {
         break_status=true
         ;;
     6)
-        fetch_remote_script "https://raw.githubusercontent.com/teddysun/across/master/unixbench.sh" "$TEMP_DIR/unixbench.sh" && chmod 700 "$TEMP_DIR/unixbench.sh" && bash "$TEMP_DIR/unixbench.sh"
+        wget -O "$TEMP_DIR/unixbench.sh" https://raw.githubusercontent.com/teddysun/across/master/unixbench.sh && chmod 700 "$TEMP_DIR/unixbench.sh" && bash "$TEMP_DIR/unixbench.sh"
         break_status=true
         ;;
     7)
-        fetch_remote_script "https://raw.githubusercontent.com/FunctionClub/ZBench/master/ZBench-CN.sh" "$TEMP_DIR/ZBench-CN.sh" && bash "$TEMP_DIR/ZBench-CN.sh"
+        wget -O "$TEMP_DIR/ZBench-CN.sh" https://raw.githubusercontent.com/FunctionClub/ZBench/master/ZBench-CN.sh && bash "$TEMP_DIR/ZBench-CN.sh"
         break_status=true
         ;;
     0)
@@ -4972,15 +4800,15 @@ comprehensive_test_script() {
 media_test_script_options() {
     case $StartInputm in
     1)
-        fetch_remote_script "https://github.com/sjlleo/netflix-verify/releases/download/v3.1.0/nf_linux_amd64" "$TEMP_DIR/nf" && chmod 700 "$TEMP_DIR/nf" && "$TEMP_DIR/nf"
+        wget -O "$TEMP_DIR/nf" https://github.com/sjlleo/netflix-verify/releases/download/v3.1.0/nf_linux_amd64 && chmod 700 "$TEMP_DIR/nf" && "$TEMP_DIR/nf"
         break_status=true
         ;;
     2)
-        fetch_remote_script "https://cdn.jsdelivr.net/gh/sjlleo/TubeCheck/CDN/tubecheck_1.0beta_linux_amd64" "$TEMP_DIR/tubecheck" && chmod 700 "$TEMP_DIR/tubecheck" && clear && "$TEMP_DIR/tubecheck"
+        wget -O "$TEMP_DIR/tubecheck" https://cdn.jsdelivr.net/gh/sjlleo/TubeCheck/CDN/tubecheck_1.0beta_linux_amd64 && chmod 700 "$TEMP_DIR/tubecheck" && clear && "$TEMP_DIR/tubecheck"
         break_status=true
         ;;
     3)
-        fetch_remote_script "https://github.com/sjlleo/VerifyDisneyPlus/releases/download/1.01/dp_1.01_linux_amd64" "$TEMP_DIR/dp" && chmod 700 "$TEMP_DIR/dp" && clear && "$TEMP_DIR/dp"
+        wget -O "$TEMP_DIR/dp" https://github.com/sjlleo/VerifyDisneyPlus/releases/download/1.01/dp_1.01_linux_amd64 && chmod 700 "$TEMP_DIR/dp" && clear && "$TEMP_DIR/dp"
         break_status=true
         ;;
     4)
@@ -5078,7 +4906,7 @@ network_test_script_options() {
         break_status=true
         ;;
     6)
-        fetch_remote_script "https://raw.githubusercontent.com/Netflixxp/jcnfbesttrace/main/jcnf.sh" "$TEMP_DIR/jcnf.sh" && bash "$TEMP_DIR/jcnf.sh"
+        wget -O "$TEMP_DIR/jcnf.sh" https://raw.githubusercontent.com/Netflixxp/jcnfbesttrace/main/jcnf.sh && bash "$TEMP_DIR/jcnf.sh"
         break_status=true
         ;;
     7)
@@ -5118,7 +4946,7 @@ network_test_script_options() {
         break_status=true
         ;;
     16)
-        curl_with_dns_bootstrap https://vps789.com/public/ping24h/?remarks=from%E8%9E%8D%E5%90%88%E6%80%AA
+        curl https://vps789.com/public/ping24h/?remarks=from%E8%9E%8D%E5%90%88%E6%80%AA
         break_status=true
         ;;
     0)
