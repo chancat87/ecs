@@ -70,6 +70,16 @@
 
 # VPS_Fusion_Monster_Server_Test_Script
 
+## Update
+
+2026.08.27
+
+- The downloaded `speedtest-go` binary is now `v1.8.3`; upstream adds a unique cache-bypass parameter to the speedtest.net client-config request and follows temporary upload redirects.
+- `ecs.sh` and standalone `ipcheck.sh` preserve the ordinary resolver and curl request first. They retry with fixed-address DoH only when curl explicitly reports `Could not resolve host`.
+- Timeouts, TLS/HTTP/CDN errors, packet loss, and `Could not resolve proxy` are not treated as missing DNS. The scripts never rewrite `/etc/resolv.conf`, `/etc/hosts`, or any system resolver setting.
+- A fallback sends real DNS messages to every candidate, selects the lowest query latency, and caches that endpoint only in the run's temporary directory. Curl builds without `--doh-url` retain their original failure behavior.
+- The embedded shell DoH catalog is generated from the validated `basics` manifest. GitHub Actions regenerates it and exercises syntax, catalog consistency, explicit DNS-failure, and timeout paths before committing a refresh. The Go edition continues to use both DoH and DoT process-locally.
+
 ## Fusion_Monster_command
 
 ### Forms_of_interaction
