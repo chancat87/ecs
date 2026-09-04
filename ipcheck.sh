@@ -17,8 +17,8 @@ cleanup_temp_dir() {
     fi
 }
 trap cleanup_temp_dir EXIT
-ver="2026.07.13"
-changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
+ver="2026.08.27"
+changeLog="IP质量测试，支持明确 DNS 解析失败时的保守 DoH 引导"
 en_status=false
 shorturl=""
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "alpine")
@@ -113,16 +113,16 @@ build_text() {
             return
         fi
         if [ -s sc_result.txt ]; then
-            http_short_url=$(curl --ipv4 -sL -m 10 -X POST \
+            http_short_url=$(curl_with_dns_bootstrap --ipv4 -sL -m 10 -X POST \
                 -H "Authorization: $ST" \
                 -F "file=@${myvar}/sc_result.txt" \
                 "https://paste.spiritlhl.net/api/UL/upload")
-			if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
+            if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
 				file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
 				shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
 				https_short_url="$shorturl"
-			else
-                https_short_url=$(curl --ipv6 -sL -m 10 -X POST \
+            else
+                https_short_url=$(curl_with_dns_bootstrap --ipv6 -sL -m 10 -X POST \
                     -H "Authorization: $ST" \
                     -F "file=@${myvar}/sc_result.txt" \
                     "https://paste.spiritlhl.net/api/UL/upload")
@@ -141,7 +141,7 @@ build_text() {
 check_cdn() {
     local o_url=$1
     for cdn_url in "${cdn_urls[@]}"; do
-        if curl -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+        if curl_with_dns_bootstrap -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
             return
         fi
@@ -158,6 +158,180 @@ check_cdn_file() {
         _yellow "No CDN available, using original links"
         export cdn_success_url=""
     fi
+}
+
+# =============== 无本地 DNS 时的保守引导 ===============
+# Try the normal resolver first. Only an explicit curl "Could not resolve
+# host" error activates a fixed-address encrypted DNS probe; transient HTTP,
+# TLS, timeout, and packet-loss failures keep the original behavior.
+DOH_QUERY_PAYLOAD="AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE"
+DOH_BOOTSTRAP_CACHE="${TEMP_DIR}/doh-bootstrap.endpoint"
+DOH_BOOTSTRAP_LOCK="${TEMP_DIR}/doh-bootstrap.lock"
+## DOH_BOOTSTRAP_CATALOG_BEGIN
+DOH_BOOTSTRAP_SPECS=(
+    "AliDNS|dns.alidns.com|https://dns.alidns.com/dns-query|223.5.5.5,223.6.6.6,2400:3200::1,2400:3200:baba::1|223.5.5.5,223.6.6.6"
+    "DNSPod|doh.pub|https://doh.pub/dns-query|1.12.12.12,120.53.53.53|1.12.12.12,120.53.53.53"
+    "360 Public DNS|doh.360.cn|https://doh.360.cn/dns-query|101.198.192.33,101.198.193.29,101.199.254.118,112.65.69.15,123.6.48.18|101.198.192.33,101.198.193.29,101.199.254.118,112.65.69.15,123.6.48.18"
+    "DNS.SB|doh.sb|https://doh.sb/dns-query|185.222.222.222,45.11.45.11|185.222.222.222,45.11.45.11"
+    "Cloudflare|cloudflare-dns.com|https://cloudflare-dns.com/dns-query|1.0.0.1,1.1.1.1,104.16.248.249,104.16.249.249,2606:4700:4700::1001,2606:4700:4700::1111|1.0.0.1,1.1.1.1,104.16.248.249,104.16.249.249"
+    "Google|dns.google|https://dns.google/dns-query|8.8.4.4,8.8.8.8,2001:4860:4860::8844,2001:4860:4860::8888|8.8.4.4,8.8.8.8"
+    "Quad9 Unsecured|dns10.quad9.net|https://dns10.quad9.net/dns-query|149.112.112.10,9.9.9.10,2620:fe::10,2620:fe::fe:10|149.112.112.10,9.9.9.10"
+    "OpenDNS|doh.opendns.com|https://doh.opendns.com/dns-query|146.112.41.2|146.112.41.2"
+    "AdGuard Unfiltered|unfiltered.adguard-dns.com|https://unfiltered.adguard-dns.com/dns-query|94.140.14.140,94.140.14.141,2a10:50c0::1:ff,2a10:50c0::2:ff|94.140.14.140,94.140.14.141"
+)
+## DOH_BOOTSTRAP_CATALOG_END
+
+curl_doh_supported() {
+    command -v curl >/dev/null 2>&1 || return 1
+    command curl --help all 2>/dev/null | grep -Fq -- "--doh-url"
+}
+
+doh_cache_read() {
+    [ -s "$DOH_BOOTSTRAP_CACHE" ] || return 1
+    IFS='|' read -r DOH_BOOTSTRAP_NAME DOH_BOOTSTRAP_HOST DOH_BOOTSTRAP_URL DOH_BOOTSTRAP_ADDRESSES <"$DOH_BOOTSTRAP_CACHE" || return 1
+    [[ "$DOH_BOOTSTRAP_NAME" =~ ^[A-Za-z0-9._[:space:]-]+$ ]] || return 1
+    [[ "$DOH_BOOTSTRAP_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
+    [[ "$DOH_BOOTSTRAP_URL" == https://* ]] || return 1
+    [ -n "$DOH_BOOTSTRAP_ADDRESSES" ] || return 1
+    return 0
+}
+
+doh_probe_spec() {
+    local spec="$1"
+    local name host endpoint addresses ipv4 result status content size latency response_file response_flags
+    IFS='|' read -r name host endpoint addresses ipv4 <<<"$spec"
+    response_file=$(mktemp "$TEMP_DIR/doh-response.XXXXXX") || return 1
+    result=$(command curl --silent --show-error --fail --connect-timeout 2 --max-time 5 \
+        --resolve "${host}:443:${addresses}" \
+        -H 'Accept: application/dns-message' \
+        -o "$response_file" -w '%{http_code}|%{content_type}|%{size_download}|%{time_total}' \
+        "${endpoint}?dns=${DOH_QUERY_PAYLOAD}" 2>/dev/null) || {
+        if [ "$addresses" = "$ipv4" ]; then
+            rm -f -- "$response_file"
+            return 1
+        fi
+        result=$(command curl --silent --show-error --fail --connect-timeout 2 --max-time 5 \
+            --resolve "${host}:443:${ipv4}" \
+            -H 'Accept: application/dns-message' \
+            -o "$response_file" -w '%{http_code}|%{content_type}|%{size_download}|%{time_total}' \
+            "${endpoint}?dns=${DOH_QUERY_PAYLOAD}" 2>/dev/null) || {
+            rm -f -- "$response_file"
+            return 1
+        }
+    }
+    IFS='|' read -r status content size latency <<<"$result"
+    response_flags=$(od -An -j 2 -N 1 -tu1 "$response_file" 2>/dev/null | tr -d '[:space:]')
+    rm -f -- "$response_file"
+    [[ "$status" = "200" && "$content" == *dns-message* ]] || return 1
+    [[ "$size" =~ ^[0-9]+$ && "$size" -ge 12 ]] || return 1
+    [[ "$response_flags" =~ ^[0-9]+$ && $((response_flags & 128)) -ne 0 ]] || return 1
+    [[ "$latency" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
+    printf '%s|%s|%s|%s|%s\n' "$latency" "$name" "$host" "$endpoint" "$addresses"
+}
+
+select_doh_bootstrap() {
+    doh_cache_read && return 0
+    curl_doh_supported || return 1
+    mkdir -p "$TEMP_DIR" 2>/dev/null || return 1
+    if mkdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null; then
+        if doh_cache_read; then
+            rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
+            return 0
+        fi
+        local probe_dir
+        probe_dir=$(mktemp -d "$TEMP_DIR/doh-probes.XXXXXX") || {
+            rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
+            return 1
+        }
+        local probe_pids=()
+        local probe_index=0
+        local spec
+        for spec in "${DOH_BOOTSTRAP_SPECS[@]}"; do
+            (doh_probe_spec "$spec" >"$probe_dir/$probe_index") &
+            probe_pids+=("$!")
+            probe_index=$((probe_index + 1))
+        done
+        local probe_pid
+        for probe_pid in "${probe_pids[@]}"; do
+            wait "$probe_pid" 2>/dev/null || true
+        done
+        local best=""
+        local probe_file candidate
+        for probe_file in "$probe_dir"/*; do
+            [ -s "$probe_file" ] || continue
+            candidate=$(sed -n '1p' "$probe_file")
+            [[ "$candidate" =~ ^[0-9]+([.][0-9]+)?\| ]] || continue
+            if [ -z "$best" ] || awk -F'|' -v left="$candidate" -v right="$best" 'BEGIN { exit !((left + 0) < (right + 0)) }'; then
+                best="$candidate"
+            fi
+        done
+        local selected_status=1
+        if [ -n "$best" ]; then
+            IFS='|' read -r _ DOH_BOOTSTRAP_NAME DOH_BOOTSTRAP_HOST DOH_BOOTSTRAP_URL DOH_BOOTSTRAP_ADDRESSES <<<"$best"
+            printf '%s|%s|%s|%s\n' "$DOH_BOOTSTRAP_NAME" "$DOH_BOOTSTRAP_HOST" "$DOH_BOOTSTRAP_URL" "$DOH_BOOTSTRAP_ADDRESSES" >"$DOH_BOOTSTRAP_CACHE"
+            doh_cache_read && selected_status=0
+        fi
+        for probe_file in "$probe_dir"/*; do
+            [ -f "$probe_file" ] && rm -f -- "$probe_file"
+        done
+        rmdir "$probe_dir" 2>/dev/null || true
+        rmdir "$DOH_BOOTSTRAP_LOCK" 2>/dev/null || true
+        return "$selected_status"
+    fi
+    for _ in $(seq 1 60); do
+        doh_cache_read && return 0
+        [ -d "$DOH_BOOTSTRAP_LOCK" ] || break
+        sleep 0.2
+    done
+    doh_cache_read
+}
+
+curl_with_dns_bootstrap() {
+    local error_root="${TEMP_DIR:-${TMPDIR:-/tmp}}"
+    local error_file
+    error_file=$(mktemp "$error_root/curl-error.XXXXXX" 2>/dev/null) || {
+        command curl "$@"
+        return $?
+    }
+    local curl_status
+    if command curl "$@" 2>"$error_file"; then
+        curl_status=0
+    else
+        curl_status=$?
+    fi
+    if [ "$curl_status" -eq 0 ]; then
+        rm -f -- "$error_file"
+        return 0
+    fi
+    if ! grep -Fqi 'Could not resolve host' "$error_file"; then
+        cat "$error_file" >&2
+        rm -f -- "$error_file"
+        return "$curl_status"
+    fi
+    if ! select_doh_bootstrap; then
+        cat "$error_file" >&2
+        rm -f -- "$error_file"
+        return "$curl_status"
+    fi
+    local retry_error
+    retry_error=$(mktemp "$error_root/curl-doh-error.XXXXXX" 2>/dev/null) || retry_error="$error_file"
+    local retry_status
+    if command curl "$@" \
+        --doh-url "$DOH_BOOTSTRAP_URL" \
+        --resolve "${DOH_BOOTSTRAP_HOST}:443:${DOH_BOOTSTRAP_ADDRESSES}" \
+        2>"$retry_error"; then
+        retry_status=0
+    else
+        retry_status=$?
+    fi
+    if [ "$retry_status" -ne 0 ]; then
+        cat "$retry_error" >&2
+    fi
+    if [ "$retry_error" != "$error_file" ]; then
+        rm -f -- "$retry_error"
+    fi
+    rm -f -- "$error_file"
+    return "$retry_status"
 }
 
 pre_download() {
@@ -181,12 +355,12 @@ pre_download() {
         exit 1
         ;;
     esac
-    if ! curl --fail --location --proto '=https' --proto-redir '=https' -o "$SECURITY_CHECK_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-${platform}-${machine}"; then
+    if ! curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' -o "$SECURITY_CHECK_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-${platform}-${machine}"; then
         rm -f "$SECURITY_CHECK_BIN.download"
         return 1
     fi
     mv "$SECURITY_CHECK_BIN.download" "$SECURITY_CHECK_BIN"
-    if ! curl --fail --location --proto '=https' --proto-redir '=https' -o "$PORT_CHECKER_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-${platform}-${machine}"; then
+    if ! curl_with_dns_bootstrap --fail --location --proto '=https' --proto-redir '=https' -o "$PORT_CHECKER_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-${platform}-${machine}"; then
         rm -f "$PORT_CHECKER_BIN.download"
         return 1
     fi
@@ -204,7 +378,7 @@ translate_status() {
 }
 
 google() {
-    local curl_result=$(curl -sL -m 10 "https://www.google.com/search?q=www.spiritysdx.top" -H "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:54.0) Gecko/20100101 Firefox/54.0")
+    local curl_result=$(curl_with_dns_bootstrap -sL -m 10 "https://www.google.com/search?q=www.spiritysdx.top" -H "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:54.0) Gecko/20100101 Firefox/54.0")
     rm -f "$IP_QUALITY_GOOGLE_FILE"
     if [ "$en_status" = true ]; then
         if echo "$curl_result" | grep -q "二叉树的博客"; then
