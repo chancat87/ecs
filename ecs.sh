@@ -232,7 +232,7 @@ test_ip_s6=("240e:e1:aa00:4000::24" "2408:80f1:21:5003::a" "2409:8c1e:75b0:3003:
 test_area_b6=("北京电信" "北京联通" "北京移动")
 test_ip_b6=("2400:89c0:1053:3::69" "2400:89c0:1013:3::54" "2409:8c00:8421:1303::55")
 BrowserUA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.74 Safari/537.36"
-Speedtest_Go_version="1.8.2"
+Speedtest_Go_version="1.8.3"
 
 # =============== 基础信息设置 ===============
 REGEX=("debian|astra" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch" "freebsd" "alpine" "openbsd" "opencloudos")
@@ -307,7 +307,7 @@ global_exit_action() {
     echo -en "$SHOW_CURSOR"
     if [ "$build_text_status" = true ]; then
         build_text
-        if [ -n "$https_short_url" ] || [ -n "$http_short_url" ]; then
+		if [ -n "$https_short_url" ]; then
             if [ "$en_status" = true ]; then
                 _green "  ShortLink:"
             else
@@ -315,9 +315,6 @@ global_exit_action() {
             fi
             if [ -n "$https_short_url" ]; then
                 _blue "    $https_short_url"
-            fi
-            if [ -n "$http_short_url" ]; then
-                _blue "    $http_short_url"
             fi
             if [ "$en_status" = true ]; then
                 _yellow "  Every Test Benchmark: https://bash.spiritlhl.net/ecsguide"
@@ -4686,24 +4683,13 @@ build_text() {
             -F "file=@${myvar}/test_result.txt" \
             "https://paste.spiritlhl.net/api/UL/upload")
         if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
-            file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
-            http_short_url="http://hpaste.spiritlhl.net/#/show/${file_id}"
-            https_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
-        else
-            # 如果 HTTP 失败，尝试 HTTPS
-            https_short_url=$(curl --ipv6 -sL -m 10 -X POST \
-                -H "Authorization: $ST" \
-                -F "file=@${myvar}/test_result.txt" \
-                "https://paste.spiritlhl.net/api/UL/upload")
-            if [ $? -eq 0 ] && [ -n "$https_short_url" ] && echo "$https_short_url" | grep -q "show"; then
-                file_id=$(echo "$https_short_url" | grep -o '[^/]*$')
-                http_short_url="http://hpaste.spiritlhl.net/#/show/${file_id}"
-                https_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
-            else
-                http_short_url=""
-                https_short_url=""
-            fi
-        fi
+			file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
+			http_short_url="https://paste.spiritlhl.net/#/show/${file_id}"
+			https_short_url="$http_short_url"
+		else
+			http_short_url=""
+			https_short_url=""
+		fi
     fi
 }
 
