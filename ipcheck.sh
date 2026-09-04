@@ -118,8 +118,9 @@ build_text() {
                 -F "file=@${myvar}/sc_result.txt" \
                 "https://paste.spiritlhl.net/api/UL/upload")
             if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
-                file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
-                shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
+				file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
+				shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
+				https_short_url="$shorturl"
             else
                 https_short_url=$(curl_with_dns_bootstrap --ipv6 -sL -m 10 -X POST \
                     -H "Authorization: $ST" \
@@ -127,7 +128,8 @@ build_text() {
                     "https://paste.spiritlhl.net/api/UL/upload")
                 if [ $? -eq 0 ] && [ -n "$https_short_url" ] && echo "$https_short_url" | grep -q "show"; then
                     file_id=$(echo "$https_short_url" | grep -o '[^/]*$')
-                    shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
+					shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
+					https_short_url="$shorturl"
                 else
                     shorturl=""
                 fi
